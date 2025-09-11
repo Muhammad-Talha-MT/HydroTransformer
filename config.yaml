@@ -1,0 +1,39 @@
+# REQUIRED
+h5_path: "/data/HydroTransformer/daymet/daymet_watersheds_clipped.h5"
+
+# Process EVERYTHING
+watersheds: "ALL"
+params: "ALL"
+year_mode: "intersection"   # use years present for all selected params within each watershed
+
+# Sequences
+seq_len: 32
+stride: 1
+layout: "NTCHW"             # or "NTHWC"
+
+# Targets (optional)
+target:
+  mode: "none"              # "none" | "horizon_same" | "copy_last"
+  horizon: 1
+  target_len: 1
+  drop_incomplete: true
+
+# Spatial standardization across varying basin sizes
+spatial:
+  mode: "none"              # start simple: per-watershed files, no padding
+  # If you need one big combined file for a single model with fixed input size:
+  # mode: "max"             # pads each basin to the largest (H,W) found
+  # add_mask_channel: true  # add a 1/0 mask channel for valid pixels
+  # pad_value: 0.0
+
+# Normalization (per-watershed z-score)
+normalize:
+  enabled: false            # set true to normalize each watershed independently
+
+# Output
+output:
+  mode: "per_watershed"     # writes one NPZ per watershed
+  dir: "/tmp/seqs"
+  # If you switch to single:
+  # mode: "single"
+  # filename: "all_watersheds_padded.npz"

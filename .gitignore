@@ -1,0 +1,31 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.so
+
+# Data (large files, HPC datasets)
+*.h5
+*.hdf5
+*.nc
+*.csv
+*.tsv
+*.parquet
+*.pkl
+*.pt
+*.pth
+*.npz
+*.npy
+
+# Logs / outputs
+*.log
+logs/
+plots/
+gif_frames/
+runs/
+models/
+data/
+# big geodata
+data/raw/
+*.tif
+*.tiff
+*.shp

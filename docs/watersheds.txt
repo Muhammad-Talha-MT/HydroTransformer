@@ -1,0 +1,79 @@
+=== Years summary (intersection) ===
+4096405_watershed: years=2000..2020 (n=21), shape=(28, 57), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4096515_watershed: years=2000..2020 (n=21), shape=(16, 11), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4097500_watershed: years=2000..2020 (n=21), shape=(54, 116), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4097540_watershed: years=2000..2020 (n=21), shape=(15, 38), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4099000_watershed: years=2000..2020 (n=21), shape=(80, 116), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4101500_watershed: years=2000..2020 (n=21), shape=(110, 146), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4101800_watershed: years=2000..2020 (n=21), shape=(32, 33), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4102500_watershed: years=2000..2020 (n=21), shape=(36, 56), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4102700_watershed: years=2000..2020 (n=21), shape=(18, 24), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4104945_watershed: years=2000..2020 (n=21), shape=(20, 12), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4105000_watershed: years=2000..2020 (n=21), shape=(33, 36), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4105500_watershed: years=2000..2020 (n=21), shape=(59, 73), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4105700_watershed: years=2000..2020 (n=21), shape=(17, 8), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4106000_watershed: years=2000..2020 (n=21), shape=(59, 104), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4108600_watershed: years=2000..2020 (n=21), shape=(27, 24), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4108800_watershed: years=2000..2020 (n=21), shape=(23, 20), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4109000_watershed: years=2000..2020 (n=21), shape=(57, 33), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4112000_watershed: years=2000..2020 (n=21), shape=(9, 9), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4112500_watershed: years=2000..2020 (n=21), shape=(37, 54), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4113000_watershed: years=2000..2020 (n=21), shape=(87, 64), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4114000_watershed: years=2000..2020 (n=21), shape=(87, 90), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4115000_watershed: years=2000..2020 (n=21), shape=(22, 16), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4115265_watershed: years=2000..2020 (n=21), shape=(19, 17), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4116000_watershed: years=2000..2020 (n=21), shape=(136, 107), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4117500_watershed: years=2000..2020 (n=21), shape=(41, 59), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4118500_watershed: years=2000..2020 (n=21), shape=(37, 29), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4121300_watershed: years=2000..2020 (n=21), shape=(29, 54), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4121500_watershed: years=2000..2020 (n=21), shape=(88, 92), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4121944_watershed: years=2000..2020 (n=21), shape=(48, 37), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4121970_watershed: years=2000..2020 (n=21), shape=(145, 98), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4122100_watershed: years=2000..2020 (n=21), shape=(16, 11), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4122200_watershed: years=2000..2020 (n=21), shape=(38, 57), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4122500_watershed: years=2000..2020 (n=21), shape=(47, 59), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4124200_watershed: years=2000..2020 (n=21), shape=(95, 79), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4124500_watershed: years=2000..2020 (n=21), shape=(18, 16), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4125550_watershed: years=2000..2020 (n=21), shape=(117, 92), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4126740_watershed: years=2000..2020 (n=21), shape=(24, 26), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4126970_watershed: years=2000..2020 (n=21), shape=(28, 32), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4127800_watershed: years=2000..2020 (n=21), shape=(25, 22), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4142000_watershed: years=2000..2020 (n=21), shape=(49, 48), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4144500_watershed: years=2000..2020 (n=21), shape=(56, 68), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4146000_watershed: years=2000..2020 (n=21), shape=(20, 14), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4146063_watershed: years=2000..2020 (n=21), shape=(33, 25), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4147500_watershed: years=2000..2020 (n=21), shape=(64, 47), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4148140_watershed: years=2000..2020 (n=21), shape=(31, 27), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4148500_watershed: years=2000..2020 (n=21), shape=(65, 61), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4151500_watershed: years=2000..2020 (n=21), shape=(71, 71), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4152238_watershed: years=2000..2020 (n=21), shape=(24, 37), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4154000_watershed: years=2000..2020 (n=21), shape=(63, 84), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4157005_watershed: years=2000..2020 (n=21), shape=(179, 193), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4159492_watershed: years=2000..2020 (n=21), shape=(63, 36), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4159900_watershed: years=2000..2020 (n=21), shape=(22, 35), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4160600_watershed: years=2000..2020 (n=21), shape=(26, 46), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4163400_watershed: years=2000..2020 (n=21), shape=(10, 16), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4164100_watershed: years=2000..2020 (n=21), shape=(11, 17), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4164300_watershed: years=2000..2020 (n=21), shape=(21, 16), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4166500_watershed: years=2000..2020 (n=21), shape=(48, 33), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4167000_watershed: years=2000..2020 (n=21), shape=(22, 32), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4175600_watershed: years=2000..2020 (n=21), shape=(29, 35), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4176000_watershed: years=2000..2020 (n=21), shape=(61, 55), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+4176500_watershed: years=2000..2020 (n=21), shape=(68, 89), vars=['dayl', 'prcp', 'srad', 'swe', 'tmax', 'tmin', 'vp']
+Dataset size: 460245
+61 Watershed
+
+
+# =========================
+# Watershed splits (HARDCODED)
+# =========================
+# ALL_WATERSHEDS = [
+#     4096405, 4096515, 4097500, 4097540, 4099000, 4101500, 4101800, 4102500,
+#     4102700, 4104945, 4105000, 4105500, 4105700, 4106000, 4108600, 4108800,
+#     4109000, 4112000, 4112500, 4113000, 4114000, 4115000, 4115265, 4116000,
+#     4117500, 4118500, 4121300, 4121500, 4121944, 4121970, 4122100, 4122200,
+#     4122500, 4124200, 4124500, 4125550, 4126740, 4126970, 4127800, 4142000,
+#     4144500, 4146000, 4146063, 4147500, 4148140, 4148500, 4151500, 4152238,
+#     4154000, 4157005, 4159492, 4159900, 4160600, 4163400, 4164100, 4164300,
+#     4166500, 4167000, 4175600, 4176000, 4176500
+# ]

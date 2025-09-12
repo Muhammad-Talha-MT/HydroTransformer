@@ -1,7 +1,7 @@
 # training_pretrained.py
 import os
 # 👉 No spaces in the list below
-os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
 
 import gc
 import signal
@@ -17,10 +17,10 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from hydro_loss import HydroLossNorm
-from resnet_transformer import ImprovedHydroTransformer  # <-- model file provided above
+# from hydro_loss import HydroLossNorm
+from resnet_transformer import ImprovedHydroTransformer  # <-- your model
 
-from data_loader import (
+from data_loader_update import (
     WatershedFlowDataset,
     GroupedBatchSampler,
 )
@@ -32,25 +32,41 @@ H5_PATH   = "/data/HydroTransformer/daymet/daymet_watersheds_clipped.h5"
 CSV_PATH  = "/home/talhamuh/water-research/HydroTransformer/data/processed/streamflow_data/HydroTransformer_Streamflow.csv"
 STATIC_H5 = "/home/talhamuh/water-research/HydroTransformer/data/processed/static_parameters_data/file.h5"
 
-RUN_TAG        = "pretrained_resnet18_tformer_MSE_09102025"
+RUN_TAG        = "pretrained_resnet18_tformer_SL30_09122025"
 OUT_MODELS_DIR = f"../models/{RUN_TAG}/"
 OUT_PLOTS_DIR  = f"../plots/{RUN_TAG}/"
 TB_DIR         = f"../runs/{RUN_TAG}/"
 LOG_FILE       = f"../logs/{RUN_TAG}.log"
+SCALER_DIR     = f"../scalers/{RUN_TAG}/"
 
 os.makedirs(OUT_MODELS_DIR, exist_ok=True)
 os.makedirs(OUT_PLOTS_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 os.makedirs(TB_DIR, exist_ok=True)
+os.makedirs(SCALER_DIR, exist_ok=True)
+
+# Cache files (train-fitted; reused by val/test)
+MM_CLIM = os.path.join("mm__CLIMATE__TRAIN_GLOBAL.json")
+MM_FLOW = os.path.join("mm__FLOW__TRAIN_GLOBAL.json")
+MM_STAT = os.path.join("mm__STATIC__TRAIN_GLOBAL.json")
+
+# Transforms (applied BEFORE scaling)
+CLIMATE_TRANSFORM_MAP = {
+    # adapt keys to your HDF variable names; harmless if a key is absent
+    "prcp": "log1p", "ppt": "log1p", "precip": "log1p",
+    # "tmin": "identity",
+    # "tmax": "identity",
+}
+STREAMFLOW_TRANSFORM = "log1p"
 
 EPOCHS       = 15000
-BATCH_SIZE   = 32            # small; BN is frozen for stability
+BATCH_SIZE   = 32           # small; BN is frozen for stability
 NUM_WORKERS  = 8
 PIN_MEMORY   = True
 USE_AMP_DEF  = True         # can be toggled with --no-amp
 GRAD_CLIP    = 1.0
 
-SEQ_LEN    = 5
+SEQ_LEN    = 30
 LEAD_DAYS  = 1
 START_YEAR = 2011
 END_YEAR   = 2021
@@ -68,14 +84,7 @@ ALL_WATERSHEDS = [
     4154000, 4157005, 4159492, 4159900, 4160600, 4163400, 4164100, 4164300,
     4166500, 4167000, 4175600
 ]
-# ALL_WATERSHEDS = [4102700, 4104945, 4105000, 4105500]
-# VAL_WATERSHEDS = [4102700]
-# Flow based distribution
-VAL_WATERSHEDS = [4113000,4144500,4097500,4146000,4104945]
-
-
-# area basd distribution
-# VAL_WATERSHEDS = [4117500,4163400,4164100,4146000,4146063,4109000,4112000,4112500,4116000,4118500,4104945,4096405]
+VAL_WATERSHEDS = [4113000, 4144500, 4097500, 4146000, 4104945]
 TEST_WATERSHEDS = [4176500, 4176000]
 TRAIN_WATERSHEDS = [w for w in ALL_WATERSHEDS if w not in set(VAL_WATERSHEDS) | set(TEST_WATERSHEDS)]
 
@@ -107,7 +116,13 @@ def nse(obs: np.ndarray, pred: np.ndarray) -> float:
     return 1.0 - np.sum((obs - pred)**2) / denom
 
 def _denorm_streamflow(v: np.ndarray, ws: str, gmm_stream: dict) -> np.ndarray:
-    mn = gmm_stream[ws]['min']; mx = gmm_stream[ws]['max']
+    """
+    Denormalize using GLOBAL stats if present; otherwise fall back to per-WS.
+    """
+    mm = gmm_stream.get("GLOBAL", None)
+    if mm is None:
+        mm = gmm_stream[ws]  # legacy per-watershed cache
+    mn, mx = mm['min'], mm['max']
     scale = (mx - mn) if (mx - mn) != 0 else 1.0
     return v * scale + mn
 
@@ -190,16 +205,15 @@ def build_model(in_channels: int, device: torch.device,
                 fusion_type: str = "film",
                 freeze_all_temporal: bool = False,
                 unfreeze_last_n: int = 1) -> nn.Module:
-    # Instantiate the new model (ResNet-50 spatial + deeper Transformer temporal)
     model = ImprovedHydroTransformer(
         in_channels=in_channels,
-        # Spatial (as you like)
+        # Spatial
         spatial_d_model=32, spatial_pretrained=True, spatial_freeze_stages=0,
-        # >>> Temporal: must match HF config <<<
+        # Temporal
         temporal_d_model=32,
         temporal_heads=2,
         temporal_depth=4,
-        temporal_ff_mult=1,     # 32 / 64 to match encoder_ffn_dim=32
+        temporal_ff_mult=1,
         temporal_dropout=0.1,
         temporal_norm_first=True,
         temporal_use_cls_token=False,
@@ -209,19 +223,16 @@ def build_model(in_channels: int, device: torch.device,
         map_location=device
     ).to(device)
 
-    # Optionally freeze most temporal layers then unfreeze the last N for fine-tuning
     if freeze_all_temporal:
         model.freeze_temporal_all(keep_proj=True, keep_norm=True)
         model.unfreeze_temporal_last_n(unfreeze_last_n)
 
-    # Freeze BN stats in the spatial backbone for small batches (stability)
     base = get_base_model(model)
     try:
         _freeze_all_bns(base.spatial_encoder.backbone)
     except Exception:
         pass
 
-    # Log parameter counts
     try:
         total = base.total_param_count()
         trainable = base.trainable_param_count()
@@ -249,7 +260,6 @@ def save_model(model, optimizer, epoch, filename, scaler=None):
             pass
     torch.save(payload, filename)
 
-# in load_checkpoint(...)
 def load_checkpoint(path, model, optimizer=None, scaler=None, map_location=None, strict=True, load_optim=True):
     ckpt = torch.load(path, map_location=map_location or 'cpu')
     get_base_model(model).load_state_dict(ckpt['model_state_dict'], strict=strict)
@@ -265,7 +275,6 @@ def load_checkpoint(path, model, optimizer=None, scaler=None, map_location=None,
     print(f"Loaded checkpoint '{os.path.basename(path)}' at epoch {start_epoch}.")
     return start_epoch
 
-
 # =========================
 # Checkpoint-on-interrupt
 # =========================
@@ -279,6 +288,96 @@ class CheckpointManager:
         print(f"\n[Signal {signum}] Interrupt — saving checkpoint: {fn}")
         save_model(self.model, self.optimizer, self.current_epoch, fn, scaler=self.scaler)
         raise KeyboardInterrupt
+
+@torch.no_grad()
+def tb_log_predictions(model,
+                       loader,
+                       writer,
+                       device,
+                       epoch: int,
+                       gmm_stream: dict,
+                       flow_transform_kind: str | None,
+                       max_ws: int = 4,
+                       max_points: int = 1000,
+                       use_amp: bool = True,
+                       tag_prefix: str = "val"):
+    """
+    Logs per-watershed time-series and scatter (obs vs pred) in *original flow units*
+    into TensorBoard, and per-watershed NSE scalars.
+
+    max_ws:     number of watersheds to visualize
+    max_points: cap points to keep figures/lightweight
+    """
+    model.eval()
+    # Collect per-WS series, keyed by watershed id
+    ws_series = {}  # ws -> {"t": [], "obs": [], "pred": []}
+
+    for batch in loader:
+        X = batch["X"].to(device, non_blocking=True)
+        y_norm = batch["y"][:, 0].cpu().numpy()
+        DEMb, AWCb, FCb, soilb = prep_statics_for_batch(batch, device)
+
+        with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=(device.type=="cuda" and use_amp)):
+            yhat_norm = model(X, DEM=DEMb, awc=AWCb, fc=FCb, soil=soilb).detach().cpu().numpy()
+
+        for i, m in enumerate(batch["meta"]):
+            ws = m["watershed"]
+            # chronological proxy for the target index (end of window)
+            t_idx = int(m["start_global"]) + int(m["seq_len"]) - 1
+
+            # denorm + inverse transform back to flow units
+            y_tr    = _denorm_streamflow(y_norm[i],  ws, gmm_stream)
+            yhat_tr = _denorm_streamflow(yhat_norm[i], ws, gmm_stream)
+            obs  = inverse_flow_transform(y_tr,    flow_transform_kind)
+            pred = inverse_flow_transform(yhat_tr, flow_transform_kind)
+
+            s = ws_series.setdefault(ws, {"t": [], "obs": [], "pred": []})
+            s["t"].append(t_idx); s["obs"].append(float(obs)); s["pred"].append(float(pred))
+
+    # Log a few watersheds to TB
+    for j, (ws, s) in enumerate(list(ws_series.items())[:max_ws]):
+        t   = np.asarray(s["t"])
+        obs = np.asarray(s["obs"])
+        pre = np.asarray(s["pred"])
+
+        # sort by time (makes the time-series meaningful)
+        order = np.argsort(t)
+        t, obs, pre = t[order], obs[order], pre[order]
+
+        # subsample if too long
+        if len(t) > max_points:
+            sel = np.linspace(0, len(t)-1, max_points).astype(int)
+            t, obs, pre = t[sel], obs[sel], pre[sel]
+
+        # --- NSE scalar
+        score = nse(obs, pre)
+        writer.add_scalar(f"{tag_prefix}/NSE/{ws}", float(score), epoch)
+
+        # --- Time-series figure
+        fig_ts = plt.figure(figsize=(7, 3))
+        plt.plot(t, obs, label="Obs")
+        plt.plot(t, pre, label="Pred", alpha=0.85)
+        plt.xlabel("Day index"); plt.ylabel("Flow")
+        plt.title(f"WS {ws} — time series")
+        plt.legend(); plt.tight_layout()
+        writer.add_figure(f"{tag_prefix}/timeseries/{ws}", fig_ts, global_step=epoch)
+        plt.close(fig_ts)
+
+        # --- Scatter figure
+        fig_sc = plt.figure(figsize=(4, 4))
+        plt.scatter(obs, pre, s=6, alpha=0.6)
+        mn, mx = float(np.min(obs)), float(np.max(obs))
+        plt.plot([mn, mx], [mn, mx], "r--", linewidth=1)
+        plt.xlabel("Obs"); plt.ylabel("Pred")
+        plt.title(f"WS {ws} — scatter")
+        plt.tight_layout()
+        writer.add_figure(f"{tag_prefix}/scatter/{ws}", fig_sc, global_step=epoch)
+        plt.close(fig_sc)
+
+        # (optional) residual histogram
+        res = pre - obs
+        writer.add_histogram(f"{tag_prefix}/residuals/{ws}", torch.tensor(res), global_step=epoch)
+
 
 # =========================
 # Train / Eval
@@ -296,9 +395,7 @@ def train_one_epoch(model, loader, loss_fn, opt, scaler, epoch, device, writer=N
         with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=(device.type=="cuda" and use_amp)):
             y_hat = model(X, DEM=DEMb, awc=AWCb, fc=FCb, soil=soilb)
             y_hat = torch.nan_to_num(y_hat, nan=0.0, posinf=1e6, neginf=-1e6)
-            # print("Y_hat:", y_hat, "y:", y)
             loss = loss_fn(y_hat, y)
-            # print(loss)
         scaler.scale(loss).backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
         scaler.step(opt); scaler.update()
@@ -309,7 +406,7 @@ def train_one_epoch(model, loader, loss_fn, opt, scaler, epoch, device, writer=N
         if writer is not None:
             global_step = (epoch - 1) * len(loader) + step
             writer.add_scalar("train/batch_loss", float(loss.detach().item()), global_step)
-    # exit()
+
     epoch_loss = running / max(1, len(loader))
     if writer is not None:
         writer.add_scalar("train/epoch_loss", epoch_loss, epoch)
@@ -364,31 +461,44 @@ def eval_nse_and_plots(model, loader, device, epoch, plots_dir, gmm_stream, flow
         plt.xlabel("Observed Flow"); plt.ylabel("Predicted Flow")
         plt.title(f"WS {ws} | NSE={score:.3f} | Epoch {epoch}")
         plt.legend(); plt.tight_layout()
-        plt.savefig(os.path.join(plots_dir, f"watershed_{ws}.png"), dpi=150)
+        plt.savefig(os.path.join(plots_dir, f"watershed_{ws}_epoch{epoch}.png"), dpi=150)
         plt.close()
 
 # =========================
-# Data loaders (simple split)
+# Data loaders (split-safe GLOBAL scalers)
 # =========================
-def make_loaders(train_ws, val_ws, test_ws):
-    common_ds_kwargs = dict(
+def _make_dataset(ws_list, fit_scalers_on_this_split=False):
+    return WatershedFlowDataset(
         h5_path=H5_PATH,
         csv_path=CSV_PATH,
         static_h5=STATIC_H5,
         variables=None,
+        watersheds=ws_list,
         seq_len=SEQ_LEN, stride=1,
         lead_days=LEAD_DAYS,
         start_year=START_YEAR, end_year=END_YEAR,
-        drop_nan_targets=True
+        drop_nan_targets=True,
+        climate_transform_map=CLIMATE_TRANSFORM_MAP,
+        streamflow_transform=STREAMFLOW_TRANSFORM,
+        min_max_file_climate=MM_CLIM,
+        min_max_file_streamflow=MM_FLOW,
+        min_max_file_static=MM_STAT,
+        min_max_scope="global",
+        mm_watersheds=ws_list if fit_scalers_on_this_split else None,  # FIT only on TRAIN
     )
-    train_ds = WatershedFlowDataset(watersheds=train_ws, **common_ds_kwargs)
-    val_ds   = WatershedFlowDataset(watersheds=val_ws,   **common_ds_kwargs)
-    test_ds  = WatershedFlowDataset(watersheds=test_ws,  **common_ds_kwargs)
 
+def make_loaders(train_ws, val_ws, test_ws):
+    # --- Datasets
+    train_ds = _make_dataset(train_ws, fit_scalers_on_this_split=True)   # fits and saves caches
+    val_ds   = _make_dataset(val_ws,   fit_scalers_on_this_split=False)  # loads same caches
+    test_ds  = _make_dataset(test_ws,  fit_scalers_on_this_split=False)  # loads same caches
+
+    # --- Samplers
     train_sampler = GroupedBatchSampler(train_ds, batch_size=BATCH_SIZE, shuffle=True)
     val_sampler   = GroupedBatchSampler(val_ds,   batch_size=BATCH_SIZE, shuffle=False)
     test_sampler  = GroupedBatchSampler(test_ds,  batch_size=BATCH_SIZE, shuffle=False)
 
+    # --- Loaders
     train_loader = DataLoader(train_ds, batch_sampler=train_sampler,
                               num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY,
                               collate_fn=collate_with_static)
@@ -399,6 +509,7 @@ def make_loaders(train_ws, val_ws, test_ws):
                               num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY,
                               collate_fn=collate_with_static)
 
+    # --- Channels & streamflow scaler dict (GLOBAL)
     C = train_ds[0]["X"].shape[1]
     gmm_stream = train_ds.global_min_max_streamflow
     return train_ds, val_ds, test_ds, train_loader, val_loader, test_loader, C, gmm_stream
@@ -439,7 +550,7 @@ def main():
         fusion_type="film",
         freeze_all_temporal=False
     )
-    model = wrap_dataparallel_if_available(model, device, None if args.no_dp else [0,1,2,3])
+    model = wrap_dataparallel_if_available(model, device, None if args.no_dp else [0,1])
 
     base = get_base_model(model)
     opt = torch.optim.AdamW(
@@ -447,13 +558,7 @@ def main():
     )
     scheduler = CosineAnnealingLR(opt, T_max=EPOCHS_RUN, eta_min=1e-5)
 
-    # loss_fn = HydroLossNorm(
-    #     w_huber=0.8, w_nse=0.15, w_kge=0.05,
-    #     huber_beta=0.1,
-    #     sst_floor_per_sample=1e-3,
-    #     nse_clip=50.0,
-    #     squash="sigmoid",
-    # )
+    # loss_fn = HydroLossNorm(...)
     loss_fn = nn.MSELoss()
 
     scaler = torch.amp.GradScaler(enabled=(device.type=="cuda" and USE_AMP))
@@ -466,8 +571,10 @@ def main():
     # Resume?
     start_epoch = 0
     if args.resume is not None and os.path.isfile(args.resume):
-        start_epoch = load_checkpoint(args.resume, model, optimizer=opt, scaler=scaler,
-                                      map_location=device, strict=True)
+        # start_epoch = load_checkpoint(args.resume, model, optimizer=opt, scaler=scaler,
+        #                               map_location=device, strict=True)
+        start_epoch = load_checkpoint(args.resume, model, map_location=device, strict=True)
+        start_epoch = 0
         print(f"Resuming training from epoch {start_epoch+1}...")
     elif args.resume:
         print(f"Warning: checkpoint not found at {args.resume}; starting from scratch.")
@@ -482,7 +589,15 @@ def main():
                                          writer=writer, use_amp=USE_AMP)
             val_loss   = eval_loss(model, val_loader, loss_fn, device,
                                    writer=writer, epoch=epoch, split_name="val", use_amp=USE_AMP)
-
+            tb_log_predictions(
+                model, val_loader, writer, device, epoch,
+                gmm_stream=gmm_stream,
+                flow_transform_kind=train_ds.streamflow_transform,
+                use_amp=USE_AMP,
+                max_ws=4,           # visualize a handful
+                max_points=1200,    # keep figures light
+                tag_prefix="val"
+            )
             scheduler.step()
 
             # log LR per param group
@@ -499,14 +614,14 @@ def main():
                 save_model(model, opt, epoch,
                            filename=os.path.join(OUT_MODELS_DIR, f"best.pth"),
                            scaler=scaler)
-
-            # Periodic snapshot
+            # Save latest model
+            # Periodic snapshot (distinct filename)
             if epoch % 5 == 0:
                 save_model(model, opt, epoch,
-                           filename=os.path.join(OUT_MODELS_DIR, f"best.pth"),
+                           filename=os.path.join(OUT_MODELS_DIR, f"epoch_{epoch}.pth"),
                            scaler=scaler)
 
-            # Test NSE + plots each epoch (optional)
+            # Optional: test NSE + plots each epoch
             eval_nse_and_plots(
                 model, test_loader, device, epoch,
                 plots_dir=OUT_PLOTS_DIR,

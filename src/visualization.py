@@ -1,4 +1,4 @@
-import re, json, h5py, numpy as np, pandas as pd, matplotlib.pyplot as plt
+import os, re, json, h5py, numpy as np, pandas as pd, matplotlib.pyplot as plt
 from statistics import NormalDist
 
 # ---------- Helpers (match your loader's logic) ----------
@@ -49,7 +49,7 @@ def _pct_zeros(x, eps=0.0):
     return 100.0 * np.mean(x <= eps)
 
 def suggest_transform(values):
-    """Very small heuristic to offer a starting transform."""
+    """Heuristic to offer a starting transform."""
     v = np.asarray(values)
     v = v[np.isfinite(v)]
     if v.size < 100: return "identity"
@@ -79,8 +79,49 @@ def _qqplot_against_normal(ax, x, title):
     ax.set_title(title); ax.set_xlabel("Theoretical N(0,1) quantiles"); ax.set_ylabel("Sample quantiles")
     ax.grid(alpha=0.3)
 
-# ---------- Sampling from your data ----------
+# ---------- GLOBAL-first min–max helpers ----------
+def _load_minmax(json_path):
+    if not json_path or not os.path.exists(json_path):
+        return None
+    with open(json_path, "r") as f:
+        return json.load(f)
 
+def _get_climate_minmax(gmm, watershed_key, variable):
+    """
+    Prefer GLOBAL per-variable stats: gmm['GLOBAL'][var]{min,max}
+    Fallbacks:
+      - gmm[watershed_key][variable]
+      - gmm[watershed_id_only][variable]
+    """
+    if gmm is None: return (None, None)
+    if 'GLOBAL' in gmm and isinstance(gmm['GLOBAL'], dict):
+        mm = gmm['GLOBAL'].get(variable)
+        if mm and 'min' in mm and 'max' in mm:
+            return float(mm['min']), float(mm['max'])
+    # legacy per-watershed
+    for key in (watershed_key, watershed_key.split('_')[0]):
+        mm_ws = gmm.get(key, {})
+        mm = mm_ws.get(variable)
+        if mm and 'min' in mm and 'max' in mm:
+            return float(mm['min']), float(mm['max'])
+    return (None, None)
+
+def _get_flow_minmax(gmm, watershed_id):
+    """
+    Prefer GLOBAL flow stats: gmm['GLOBAL']{min,max}
+    Fallback: per-watershed key like '<id>_watershed'
+    """
+    if gmm is None: return (None, None)
+    if 'GLOBAL' in gmm and isinstance(gmm['GLOBAL'], dict) and 'min' in gmm['GLOBAL']:
+        mm = gmm['GLOBAL']
+        return float(mm['min']), float(mm['max'])
+    ws_key = f"{watershed_id}_watershed"
+    mm = gmm.get(ws_key)
+    if mm and 'min' in mm and 'max' in mm:
+        return float(mm['min']), float(mm['max'])
+    return (None, None)
+
+# ---------- Sampling from your data ----------
 def _collect_climate_values(h5_path, watershed, variable,
                             years=None, time_stride=5, space_stride=5, max_years=None):
     """Downsample in time and space to keep it light."""
@@ -94,8 +135,7 @@ def _collect_climate_values(h5_path, watershed, variable,
         if max_years is not None:
             yr_pairs = yr_pairs[:max_years]
         for _, ky in yr_pairs:
-            ds = g[ky]
-            # ds shape: (365, H, W)
+            ds = g[ky]           # (365, H, W)
             take = ds[::time_stride, ::space_stride, ::space_stride]
             vals.append(take.reshape(-1))
     if not vals:
@@ -122,33 +162,21 @@ def _collect_streamflow_values(csv_path, watershed_id, start_year=2000, years=No
             idx = (y - start_year)
             if 0 <= idx < n_years:
                 keep.append(x[idx*365:(idx+1)*365])
-        if keep:
-            x = np.concatenate(keep, axis=0)
-        else:
-            x = np.array([])
+        x = np.concatenate(keep, axis=0) if keep else np.array([])
     x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
     return x
 
-# ---------- Main visualization functions ----------
-
-# --- add near the top if you run headless (optional) ---
-# import matplotlib
-# matplotlib.use("Agg")  # non-interactive backend for servers
-
-import os
-import matplotlib.pyplot as plt
-
+# ---------- Core plotting ----------
 def _visualize_base(x_raw, transform_kind, norm_min=None, norm_max=None,
                     title_prefix="", bins=80, show_qq=True,
                     save_path=None, dpi=300, show=False):
     """
-    Core plotting: Raw vs Transformed vs Normalized with ECDFs (+ optional QQ).
-    If save_path is provided ('.png', '.pdf', etc.), the figure is saved there.
-    - show=False avoids blocking scripts; set True if you want an interactive window.
+    Raw vs Transformed vs Normalized with ECDFs (+ optional QQ).
+    Prefer passing GLOBAL norm_min/max; falls back to data min/max if None.
     """
     x_raw = x_raw[np.isfinite(x_raw)]
     if x_raw.size == 0:
-        print("No data to visualize."); 
+        print("No data to visualize.")
         return
 
     x_tr  = _transform_array(x_raw, transform_kind)
@@ -156,48 +184,21 @@ def _visualize_base(x_raw, transform_kind, norm_min=None, norm_max=None,
     mx = x_tr.max() if norm_max is None else norm_max
     x_nm = _normalize(x_tr, mn, mx)
 
-    def _ecdf(x):
-        x = x[np.isfinite(x)]
-        if x.size == 0: return np.array([0.0]), np.array([0.0])
-        xs = np.sort(x); ys = (np.arange(1, xs.size+1)) / xs.size
-        return xs, ys
-
-    def _skewness(x):
-        x = x[np.isfinite(x)]
-        if x.size < 2: return np.nan
-        m = x.mean(); s = x.std()
-        return 0.0 if s == 0 else np.mean(((x - m)/s)**3)
-
-    def _pct_zeros(x, eps=0.0):
-        x = x[np.isfinite(x)]
-        return 0.0 if x.size == 0 else 100.0 * np.mean(x <= eps)
-
-    from statistics import NormalDist
-    def _qqplot_against_normal(ax, x, title):
-        x = x[np.isfinite(x)]
-        if x.size < 50:
-            ax.text(0.5, 0.5, "Too few points", ha="center", va="center",
-                    transform=ax.transAxes); ax.set_axis_off(); return
-        x = (x - x.mean()) / (x.std() if x.std() != 0 else 1.0)
-        n = x.size
-        p = (np.arange(1, n+1) - 0.5) / n
-        q_theor = np.array([NormalDist().inv_cdf(pi) for pi in p])
-        q_sample = np.sort(x)
-        ax.scatter(q_theor, q_sample, s=6, alpha=0.6)
-        lim = np.nanpercentile(np.concatenate([q_theor, q_sample]), [1, 99])
-        ax.plot(lim, lim, lw=1.0)
-        ax.set_title(title); ax.set_xlabel("Theoretical N(0,1)"); ax.set_ylabel("Sample")
-        ax.grid(alpha=0.3)
-
     def _annot(ax, v, label, extra_zero=None):
         m, s, sk = float(np.mean(v)), float(np.std(v)), float(_skewness(v))
         txt = f"{label}\nμ={m:.3g}, σ={s:.3g}, skew={sk:.3g}"
         if extra_zero is not None:
             txt += f"\n% zeros={extra_zero:.2f}%"
-        ax.text(0.02, 0.98, txt, va="top", ha="left", transform=ax.transAxes,
-                bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="0.8", alpha=0.9), fontsize=9)
+        ax.text(
+            0.02, 0.98, txt,
+            va="top", ha="left",               # ← fixed: use a single valid value
+            transform=ax.transAxes,
+            bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="0.8", alpha=0.9),
+            fontsize=9,
+        )
 
-    fig, axes = plt.subplots(2 if show_qq else 1, 3, figsize=(15, 6 if show_qq else 4), constrained_layout=True)
+    rows = 2 if show_qq else 1
+    fig, axes = plt.subplots(rows, 3, figsize=(15, 6 if show_qq else 4), constrained_layout=True)
     if getattr(axes, "ndim", 1) == 1:
         axes = np.array([axes])
 
@@ -227,19 +228,24 @@ def _visualize_base(x_raw, transform_kind, norm_min=None, norm_max=None,
         plt.show()
     plt.close(fig)
 
+# ---------- Public visualization APIs ----------
 def visualize_climate_distribution(h5_path, watershed, variable,
                                    transform_kind="log1p",
                                    minmax_json_path=None,
                                    years=None, time_stride=5, space_stride=5,
                                    bins=80, show_qq=True,
                                    save_path=None, dpi=300, show=False):
-    # ... (unchanged collection code) ...
+    """
+    watershed: HDF group key, e.g. '4159900_watershed'
+    minmax_json_path: expects GLOBAL per-variable stats (preferred).
+    """
     x_raw = _collect_climate_values(h5_path, watershed, variable, years, time_stride, space_stride)
+
     norm_min = norm_max = None
-    if minmax_json_path:
-        gmm = json.load(open(minmax_json_path, 'r'))
-        norm_min = gmm[watershed][variable]['min']
-        norm_max = gmm[watershed][variable]['max']
+    gmm = _load_minmax(minmax_json_path)
+    if gmm is not None:
+        norm_min, norm_max = _get_climate_minmax(gmm, watershed_key=watershed, variable=variable)
+
     title = f"{watershed}:{variable} ({transform_kind})"
     _visualize_base(x_raw, transform_kind, norm_min, norm_max, title,
                     bins=bins, show_qq=show_qq, save_path=save_path, dpi=dpi, show=show)
@@ -250,39 +256,44 @@ def visualize_streamflow_distribution(csv_path, watershed_id,
                                       start_year=2000, years=None,
                                       bins=80, show_qq=True,
                                       save_path=None, dpi=300, show=False):
+    """
+    watershed_id: CSV column name like '4159900' (no '_watershed' suffix).
+    minmax_json_path: expects GLOBAL flow stats (preferred).
+    """
     x_raw = _collect_streamflow_values(csv_path, watershed_id, start_year, years)
+
     norm_min = norm_max = None
-    if minmax_json_path:
-        gmm = json.load(open(minmax_json_path, 'r'))
-        ws_key = f"{watershed_id}_watershed"
-        norm_min = gmm[ws_key]['min']; norm_max = gmm[ws_key]['max']
+    gmm = _load_minmax(minmax_json_path)
+    if gmm is not None:
+        norm_min, norm_max = _get_flow_minmax(gmm, watershed_id)
+
     title = f"{watershed_id}:streamflow ({transform_kind})"
     _visualize_base(x_raw, transform_kind, norm_min, norm_max, title,
                     bins=bins, show_qq=show_qq, save_path=save_path, dpi=dpi, show=show)
 
-
+# ---------- Script entry ----------
 if __name__ == "__main__":
     # Climate variable (e.g., precip) – zero-inflated, so log1p:
-    # 1) Save a single climate variable plot as PNG
     visualize_climate_distribution(
         h5_path="/data/HydroTransformer/daymet/daymet_watersheds_clipped.h5",
         watershed="4159900_watershed",
         variable="prcp",
         transform_kind="log1p",
-        minmax_json_path="global_min_max__CLIMATE__log1p_pcp.json",
-        save_path="plots/climate/4159900_prcp_log1p.png",  # <-- saved here
+        minmax_json_path="log10__CLIMATE__TRAIN_GLOBAL.json",  # with {'GLOBAL': {var: {min,max}}}
+        save_path="plots/climate/4159900_prcp_log1p.png",
         dpi=300, show=False
     )
 
-    # 2) Save streamflow plot as PDF
+    # Streamflow plot (GLOBAL min–max preferred)
     visualize_streamflow_distribution(
         csv_path="/home/talhamuh/water-research/HydroTransformer/data/processed/streamflow_data/HydroTransformer_Streamflow.csv",
         watershed_id="4159900",
         transform_kind="log1p",
-        minmax_json_path="global_min_max__FLOW__log1p.json",
+        minmax_json_path="log10__FLOW__TRAIN_GLOBAL.json",     # with {'GLOBAL': {min,max}}
         save_path="plots/flow/4159900_flow_log1p.pdf",
         dpi=300, show=False
     )
+
     watersheds = [
         4096405, 4096515, 4097500, 4097540, 4099000, 4101500, 4101800, 4102500,
         4102700, 4104945, 4105000, 4105500, 4105700, 4106000, 4108600, 4108800,
@@ -293,24 +304,26 @@ if __name__ == "__main__":
         4154000, 4157005, 4159492, 4159900, 4160600, 4163400, 4164100, 4164300,
         4166500, 4167000, 4175600, 4176000, 4176500
     ]
-    # watersheds_list = [str(item) + "_watershed" for item in watersheds]
     watersheds_list = [str(item) for item in watersheds]
-    # 3) Batch save: multiple vars/watersheds
+
+    # Batch save: multiple vars/watersheds (GLOBAL min–max preferred)
     for ws in watersheds_list:
-        for var, tr in [("prcp","log1p")]:
-            out = f"plots/batch/{ws}_{var}_{tr}.png"
-            # visualize_climate_distribution(
-            #     h5_path="/data/HydroTransformer/daymet/daymet_watersheds_clipped.h5",
-            #     watershed=ws, variable=var, transform_kind=tr,
-            #     minmax_json_path="global_min_max__CLIMATE__log1p_pcp.json",
-            #     save_path=out, show=False
-            # )
-            visualize_streamflow_distribution(
+        # Climate
+        visualize_climate_distribution(
+            h5_path="/data/HydroTransformer/daymet/daymet_watersheds_clipped.h5",
+            watershed=ws+"_watershed",
+            variable="prcp",
+            transform_kind="log1p",
+            minmax_json_path="log10__CLIMATE__TRAIN_GLOBAL.json",
+            save_path=f"plots/batch-log10/{ws}_prcp_log1p.png",
+            show=False
+        )
+        # Streamflow
+        visualize_streamflow_distribution(
             csv_path="/home/talhamuh/water-research/HydroTransformer/data/processed/streamflow_data/HydroTransformer_Streamflow.csv",
             watershed_id=ws,
             transform_kind="log1p",
-            minmax_json_path="global_min_max__FLOW__log1p.json",
-            save_path=f"plots/flow/{ws}_flow_log1p.png",
+            minmax_json_path="log10__FLOW__TRAIN_GLOBAL.json",
+            save_path=f"plots/flow-log10/{ws}_flow_log1p.png",
             dpi=300, show=False
         )
-

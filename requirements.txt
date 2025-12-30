@@ -1,0 +1,29 @@
+# Core
+numpy
+scipy
+pandas
+
+# Deep Learning
+torch>=1.12
+torchvision
+einops
+timm
+
+# Data formats
+h5py
+netCDF4
+xarray
+
+# Geospatial
+rasterio
+shapely
+pyproj
+
+# Utilities
+scikit-learn
+tqdm
+pyyaml
+
+# Plotting
+matplotlib
+seaborn
